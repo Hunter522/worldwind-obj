@@ -1,5 +1,6 @@
 package com.hmorgan;
 
+import com.hmorgan.gfx.wavefront.ObjModel;
 import gov.nasa.worldwind.BasicModel;
 import gov.nasa.worldwind.Configuration;
 import com.hmorgan.worldwind.Cube;
@@ -10,6 +11,7 @@ import gov.nasa.worldwind.layers.RenderableLayer;
 
 import javax.swing.*;
 import java.awt.*;
+import java.io.IOException;
 
 /**
  * @author Hunter N. Morgan
@@ -34,10 +36,21 @@ public class Main {
         ww.setModel(new BasicModel());
 
         RenderableLayer layer = new RenderableLayer();
-        Cube cube = new Cube(Position.fromDegrees(35.0, -120.0, 3000), 1000);
-        layer.addRenderable(cube);
+        Position position = Position.fromDegrees(35.0, -120.0, 3000);
+//        Cube cube = new Cube(position, 1000);
+//        layer.addRenderable(cube);
+
+        try {
+            ObjModel suzanne = new ObjModel("monkey.obj");
+            suzanne.setPosition(position);
+            suzanne.setSize(1000);
+            layer.addRenderable(suzanne);
+        } catch(IOException e) {
+            e.printStackTrace();
+        }
 
         ww.getModel().getLayers().add(layer);
+//        ww.getModel().getLayers().getLayerByName("Atmosphere").setEnabled(false);
 
         frame.add(ww, BorderLayout.CENTER);
 
