@@ -239,7 +239,6 @@ public class ObjLoader {
             index.getTextureCoordIndex()
                  .ifPresent(ti -> vertexBuilder.setTexCoord(textureCoords.get(ti-currTexCoordCount)));
             vertexList.add(vertexBuilder.build());
-//            indicesBuf.put(index.getVertexIndex());
         }
 
         final IntBuffer indicesBuf = IntBuffer.allocate(vertexList.size());
@@ -249,71 +248,6 @@ public class ObjLoader {
         indicesBuf.flip();
         meshBuilder.setVertices(vertexList);
         meshBuilder.setIndices(indicesBuf);
-
-
-//        // add all of the working lists into the meshBuilder
-//        final FloatBuffer verticesBuf = FloatBuffer.allocate(vertices.size() * 3);
-//        vertices.forEach(vec3 -> {
-//            verticesBuf.put(vec3.getX());
-//            verticesBuf.put(vec3.getY());
-//            verticesBuf.put(vec3.getZ());
-//        });
-//        verticesBuf.flip();
-//        meshBuilder.setVertices(verticesBuf);
-//
-//        if(!textureCoords.isEmpty()) {
-//            final FloatBuffer texelBuf = FloatBuffer.allocate(textureCoords.size() * 3);
-//            textureCoords.forEach(vec3 -> {
-//                texelBuf.put(vec3.getX());
-//                texelBuf.put(vec3.getY());
-//                texelBuf.put(vec3.getZ());
-//            });
-//            texelBuf.flip();
-//            meshBuilder.setTextureCoords(texelBuf);
-//        }
-//
-//
-//        // ok need to post-process the indices
-//        // need to match every vertex with its corresponding normal!
-//        if(!indices.isEmpty()) {
-//            final ObjIndex first = indices.get(0);
-//            int indicesBufSize = indices.size();
-////            if(first.hasNormalIndex())
-////                indicesBufSize += indices.size();
-////            if(first.hasTextureCoordIndex())
-////                indicesBufSize += indices.size();
-//            final IntBuffer indicesBuf = IntBuffer.allocate(indicesBufSize);
-//            for(ObjIndex idx : indices) {
-//                indicesBuf.put(idx.getVertexIndex());
-////                if(idx.hasTextureCoordIndex())
-////                    indicesBuf.put(idx.getTextureCoordIndex().get());
-////                if(idx.hasNormalIndex())
-////                    indicesBuf.put(idx.getNormalIndex().get());
-//            }
-//            indicesBuf.flip();
-//            meshBuilder.setIndices(indicesBuf);
-//
-//            // iterated through normal indices, get normal, and add it to buffer
-//            // (yes this will make duplicate normals but performance hit is prolly negligable)
-//            if(!normals.isEmpty()) {
-//                final FloatBuffer normalsBuf = FloatBuffer.allocate(vertices.size() * 3);
-//                for(ObjIndex idx : indices) {
-//                    final Vec3 normalVec3 = normals.get(idx.getNormalIndex().get());
-//                    normalsBuf.put(normalVec3.getX());
-//                    normalsBuf.put(normalVec3.getY());
-//                    normalsBuf.put(normalVec3.getZ());
-//                }
-////            normals.forEach(vec3 -> {
-////                normalsBuf.put(vec3.getX());
-////                normalsBuf.put(vec3.getY());
-////                normalsBuf.put(vec3.getZ());
-////            });
-////            normalsBuf.flip();
-//                meshBuilder.setNormals(normalsBuf);
-//            }
-//        }
-
-
 
         return meshBuilder.build();
     }
