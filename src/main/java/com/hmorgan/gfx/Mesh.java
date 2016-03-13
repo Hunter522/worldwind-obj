@@ -3,6 +3,7 @@ package com.hmorgan.gfx;
 import com.hackoeur.jglm.Vec3;
 import com.jogamp.common.nio.Buffers;
 import gov.nasa.worldwind.render.DrawContext;
+import gov.nasa.worldwind.render.Material;
 import gov.nasa.worldwind.util.WWBufferUtil;
 import gov.nasa.worldwind.util.WWUtil;
 
@@ -34,6 +35,7 @@ public class Mesh {
 //    protected FloatBuffer textureCoords;// t0x/v0y/t1x/t1y...
     protected IntBuffer indices;        // v1/v2/v3 or v1/n1/v2/n2 or /v1/t1/n1/v2/t2/n2
     protected FloatBuffer vboBuf;       // vvvvnnnn (if no normals, then just vvvv)
+    private Material material;
 
     private int[] vboIds;               // vertex buffer object ids
     private int[] eboIds;               // element buffer object ids
@@ -53,10 +55,12 @@ public class Mesh {
         private List<Vertex> vertices;
         private IntBuffer indices;
         private MeshType meshType;
+        private Material material;
 
         public Builder() {
             vertices = new ArrayList<>();
             meshType = MeshType.POLYGON_MESH;   // most common
+            material = Material.GRAY;
         }
 
         public Builder setName(String val) {
@@ -79,6 +83,11 @@ public class Mesh {
             return this;
         }
 
+        public Builder setMaterial(Material val) {
+            material = val;
+            return this;
+        }
+
         public Mesh build() {
             return new Mesh(this);
         }
@@ -87,10 +96,9 @@ public class Mesh {
     private Mesh(Builder builder) {
         name = builder.name;
         vertices = builder.vertices;
-//        normals = builder.normals;
-//        textureCoords = builder.textureCoords;
         indices = builder.indices;
         meshType = builder.meshType;
+        material = builder.material;
         vboIds = new int[1];
         eboIds = new int[1];
         generatedGlBuffers = false;
@@ -98,10 +106,7 @@ public class Mesh {
         // create VBO buffer, if normals exist then layout is vvvvnnnn, else its just vvvv
 
         // create VBO, layout is vvvnnntttvvvnnnttt...
-        int vboBufSize = vertices.size()*8;
-//        if(getNormals().isPresent())
-//            vboBufSize += getNormals().get().limit();
-        vboBuf = FloatBuffer.allocate(vboBufSize);
+        vboBuf = FloatBuffer.allocate(vertices.size()*8);
         for(Vertex v : vertices) {
             vboBuf.put(v.getPosition().getX());
             vboBuf.put(v.getPosition().getY());
@@ -113,15 +118,13 @@ public class Mesh {
                 vboBuf.put(n.getZ());
             });
 
-            v.getTexCoord().ifPresent(t -> {
-                vboBuf.put(t.getX());
-                vboBuf.put(t.getY());
-            });
+            // ignore textures for now
+//            v.getTexCoord().ifPresent(t -> {
+//                vboBuf.put(t.getX());
+//                vboBuf.put(t.getY());
+//            });
         }
 
-//        vboBuf.put(vertices);
-//        if(getNormals().isPresent())
-//            vboBuf.put(normals);
         vboBuf.flip();
     }
 
@@ -161,6 +164,10 @@ public class Mesh {
 
     public FloatBuffer getVboBuf() {
         return vboBuf;
+    }
+
+    public Material getMaterial() {
+        return material;
     }
 
     public int[] getVboIds() {

@@ -79,6 +79,9 @@ public class ObjLoader {
         List<Vec3> textureCoords = new ArrayList<>();
         List<Vec3> normals = new ArrayList<>();
         List<ObjIndex> indices = new ArrayList<>();
+        int currVertexCount = 0;
+        int currNormalCount = 0;
+        int currTexCoordCount = 0;
 
         System.out.println("Parsing " + filePath.getFileName() + "...");
         // open file
@@ -92,7 +95,7 @@ public class ObjLoader {
             // add the newly created mesh to the map
 
             if (line.charAt(0) != '#') {  // ignore comments
-                final String[] tokens = line.split(" ");
+                final String[] tokens = line.split("\\s+");
                 if (tokens.length > 0) {
                     final String firstToken = tokens[0];
 
@@ -102,8 +105,18 @@ public class ObjLoader {
 
                             // start of new object, create mesh and add it to map
                             if (builtFirstMesh) {
-                                final Mesh mesh = buildMesh(meshBuilder, vertices, textureCoords, normals, indices);
+                                final Mesh mesh = buildMesh(meshBuilder,
+                                        vertices,
+                                        textureCoords,
+                                        normals,
+                                        indices,
+                                        currVertexCount,
+                                        currNormalCount,
+                                        currTexCoordCount);
                                 meshMap.put(mesh.getName(), mesh);
+                                currVertexCount += vertices.size();
+                                currNormalCount += normals.size();
+                                currTexCoordCount += textureCoords.size();
                             } else {
                                 builtFirstMesh = true;
                             }
@@ -191,7 +204,7 @@ public class ObjLoader {
         } // end while read line
 
         // reached end of file
-        final Mesh mesh = buildMesh(meshBuilder, vertices, textureCoords, normals, indices);
+        final Mesh mesh = buildMesh(meshBuilder, vertices, textureCoords, normals, indices, currVertexCount, currNormalCount, currTexCoordCount);
         meshMap.put(mesh.getName(), mesh);
         System.out.println("Finished parsing " + filePath.getFileName());
         return meshMap;
@@ -208,20 +221,23 @@ public class ObjLoader {
      * @return new Mesh object
      */
     private static Mesh buildMesh(Mesh.Builder meshBuilder,
-                           List<Vec3> vertices,
-                           List<Vec3> textureCoords,
-                           List<Vec3> normals,
-                           List<ObjIndex> indices) {
+                                  List<Vec3> vertices,
+                                  List<Vec3> textureCoords,
+                                  List<Vec3> normals,
+                                  List<ObjIndex> indices,
+                                  int currVertexCount,
+                                  int currNormalCount,
+                                  int currTexCoordCount) {
 
         // build vertex list and index buffer
         final List<Vertex> vertexList = new ArrayList<>();
 
         for(ObjIndex index : indices) {
-            Vertex.Builder vertexBuilder = new Vertex.Builder(vertices.get(index.getVertexIndex()));
+            Vertex.Builder vertexBuilder = new Vertex.Builder(vertices.get(index.getVertexIndex()-currVertexCount));
             index.getNormalIndex()
-                 .ifPresent(ni -> vertexBuilder.setNormal(normals.get(ni)));
+                 .ifPresent(ni -> vertexBuilder.setNormal(normals.get(ni-currNormalCount)));
             index.getTextureCoordIndex()
-                 .ifPresent(ti -> vertexBuilder.setTexCoord(textureCoords.get(ti)));
+                 .ifPresent(ti -> vertexBuilder.setTexCoord(textureCoords.get(ti-currTexCoordCount)));
             vertexList.add(vertexBuilder.build());
 //            indicesBuf.put(index.getVertexIndex());
         }

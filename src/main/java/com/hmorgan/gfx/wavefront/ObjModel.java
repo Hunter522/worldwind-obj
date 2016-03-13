@@ -1,27 +1,19 @@
 package com.hmorgan.gfx.wavefront;
 
-import com.hackoeur.jglm.Vec3;
 import com.hmorgan.gfx.Mesh;
 import com.jogamp.common.nio.Buffers;
 import gov.nasa.worldwind.geom.*;
 import gov.nasa.worldwind.pick.PickSupport;
 import gov.nasa.worldwind.render.DrawContext;
 import gov.nasa.worldwind.render.OrderedRenderable;
-import gov.nasa.worldwind.render.Renderable;
 import gov.nasa.worldwind.util.OGLStackHandler;
 import gov.nasa.worldwind.util.OGLUtil;
 
 import javax.media.opengl.GL;
 import javax.media.opengl.GL2;
 import java.awt.*;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 
 /**
@@ -47,8 +39,13 @@ import java.util.*;
 public class ObjModel implements OrderedRenderable {
 
     private Map<String, Mesh> meshes;       // collection of Meshes
+    private float opacity;
 
     private Position position;              // geographic position of the cube
+    private double roll;
+    private double pitch;
+    private double yaw;
+    private double scale;
 
     // Determined each frame
     protected long frameTimestamp = -1L;    // frame timestamp, increments during each render cycle
@@ -59,10 +56,9 @@ public class ObjModel implements OrderedRenderable {
     private static final OGLStackHandler oglStackHandler = new OGLStackHandler(); // used in beginDrawing/endDrawing
     protected PickSupport pickSupport = new PickSupport();
 
-    private double size;
-
 
     private ObjModel() {
+        opacity = 1.0f;
         position = Position.ZERO;
     }
 
@@ -116,7 +112,7 @@ public class ObjModel implements OrderedRenderable {
             if (!this.intersectsFrustum(dc))
                 return;
 
-            // If the shape is less that a pixel in size, don't render it.
+            // If the shape is less that a pixel in scale, don't render it.
             if (dc.isSmall(this.extent, 1))
                 return;
         }
@@ -172,11 +168,12 @@ public class ObjModel implements OrderedRenderable {
 
         // enable lighting if not in picking mode
         if(!dc.isPickingMode()) {
-            dc.beginStandardLighting();
+
             gl.glEnable(GL.GL_LINE_SMOOTH);
             gl.glEnable(GL.GL_BLEND);
             OGLUtil.applyBlending(gl, false);
 
+            dc.beginStandardLighting();
             gl.glEnable(GL2.GL_LIGHTING);
             gl.glEnableClientState(GL2.GL_NORMAL_ARRAY);
 
@@ -184,8 +181,14 @@ public class ObjModel implements OrderedRenderable {
             // before lighting is computed.
             gl.glEnable(GL2.GL_NORMALIZE);
 
+            gl.glEnable(GL2.GL_POLYGON_SMOOTH);
+            gl.glHint(GL2.GL_POLYGON_SMOOTH_HINT, GL2.GL_NICEST);
+
+            gl.glEnable(GL2.GL_LINE_SMOOTH);
             gl.glHint(GL.GL_LINE_SMOOTH_HINT, GL.GL_NICEST);
         }
+
+        gl.glDisable(GL.GL_CULL_FACE);
 
         // Multiply the modelview matrix by a surface orientation matrix to set up a local coordinate system with the
         // origin at the cube's center position, the Y axis pointing North, the X axis pointing East, and the Z axis
@@ -194,6 +197,13 @@ public class ObjModel implements OrderedRenderable {
 
         Matrix matrix = dc.getGlobe().computeSurfaceOrientationAtPosition(this.position);
         matrix = dc.getView().getModelviewMatrix().multiply(matrix);
+
+        final Matrix attitudeMatrix =
+                Matrix.fromRotationZ(Angle.fromDegrees(-yaw))
+                .multiply(Matrix.fromRotationX(Angle.fromDegrees(pitch)))
+                .multiply(Matrix.fromRotationY(Angle.fromDegrees(roll)));
+        matrix = matrix.multiply(attitudeMatrix);
+
 
         double[] matrixArray = new double[16];
         matrix.toArray(matrixArray, 0, false);
@@ -209,10 +219,11 @@ public class ObjModel implements OrderedRenderable {
         final GL2 gl = dc.getGL().getGL2();
 
         if(!dc.isPickingMode()) {
-            dc.endStandardLighting();
+
             gl.glDisable(GL.GL_LINE_SMOOTH);
             gl.glDisable(GL.GL_BLEND);
 
+            dc.endStandardLighting();
             gl.glDisable(GL2.GL_LIGHTING);
             gl.glDisableClientState(GL2.GL_NORMAL_ARRAY);
 
@@ -251,7 +262,7 @@ public class ObjModel implements OrderedRenderable {
 
             // Compute a sphere that encloses the cube. We'll use this sphere for intersection calculations to determine
             // if the cube is actually visible.
-            this.extent = new Sphere(this.placePoint, Math.sqrt(3.0) * size / 2.0);
+            this.extent = new Sphere(this.placePoint, Math.sqrt(3.0) * scale / 2.0);
 
             this.frameTimestamp = dc.getFrameTimeStamp();
         }
@@ -272,14 +283,14 @@ public class ObjModel implements OrderedRenderable {
         beginDrawing(dc);
         try {
 
-            if (dc.isPickingMode())
-            {
+            if (dc.isPickingMode()) {
                 Color pickColor = dc.getUniquePickColor();
                 pickSupport.addPickableObject(pickColor.getRGB(), this, this.position);
                 gl.glColor3ub((byte) pickColor.getRed(), (byte) pickColor.getGreen(), (byte) pickColor.getBlue());
             }
 
-            gl.glScaled(size, size, size);
+
+            gl.glScaled(scale, scale, scale);
             // for each mesh, draw it
             meshes.values().forEach(mesh -> {
                 gl.glBindBuffer(GL.GL_ARRAY_BUFFER, mesh.getVboIds()[0]);
@@ -292,8 +303,23 @@ public class ObjModel implements OrderedRenderable {
                 if(!dc.isPickingMode())
                     gl.glNormalPointer(GL.GL_FLOAT, Buffers.SIZEOF_FLOAT*6, Buffers.SIZEOF_FLOAT*3);
 
+                mesh.getMaterial().apply(gl, GL2.GL_FRONT_AND_BACK, opacity);
+                if(opacity < 1.0f) {
+//                    gl.glDepthMask(false);
+
+                    // cheap trick to achieve transparency
+                    // need to render all back faces first then all front faces using culling
+                    gl.glEnable(GL.GL_CULL_FACE);
+                    gl.glCullFace(GL.GL_FRONT);
+                    gl.glDrawArrays(GL.GL_TRIANGLES, 0, (mesh.getVboBuf().limit() / 2)/3 );
+                    gl.glCullFace(GL.GL_BACK);
+                    gl.glDrawArrays(GL.GL_TRIANGLES, 0, (mesh.getVboBuf().limit() / 2)/3 );
+                    gl.glDisable(GL.GL_CULL_FACE);
+                } else {
+                    gl.glDrawArrays(GL.GL_TRIANGLES, 0, (mesh.getVboBuf().limit() / 2)/3 );
+                }
+
 //                gl.glDrawElements(GL.GL_TRIANGLES, mesh.getIndices().get().limit(), GL.GL_UNSIGNED_INT, 0);
-                gl.glDrawArrays(GL.GL_TRIANGLES, 0, (mesh.getVboBuf().limit() / 2)/3 );
 //                gl.glDrawElements(GL.GL_TRIANGLES, mesh.getIndices().get().limit(), GL.GL_UNSIGNED_INT, 0);
             });
         } finally {
@@ -318,16 +344,53 @@ public class ObjModel implements OrderedRenderable {
         return meshes;
     }
 
-    public double getSize() {
-        return size;
+    public float getOpacity() {
+        return opacity;
     }
 
-    public void setSize(double size) {
-        this.size = size;
+    public void setOpacity(float opacity) {
+        this.opacity = opacity;
     }
 
+    public double getScale() {
+        return scale;
+    }
 
-// CUBE STUFF
+    public void setScale(double scale) {
+        this.scale = scale;
+    }
+
+    public void setAttitude(double roll, double pitch, double yaw) {
+        setRoll(roll);
+        setPitch(pitch);
+        setYaw(yaw);
+    }
+
+    public double getRoll() {
+        return roll;
+    }
+
+    public void setRoll(double roll) {
+        this.roll = roll;
+    }
+
+    public double getPitch() {
+        return pitch;
+    }
+
+    public void setPitch(double pitch) {
+        this.pitch = pitch;
+    }
+
+    public double getYaw() {
+        return yaw;
+    }
+
+    public void setYaw(double yaw) {
+        this.yaw = yaw;
+    }
+
+    // CUBE STUFF
 
     /**
      * Determines whether the cube intersects the view frustum.
@@ -366,8 +429,8 @@ public class ObjModel implements OrderedRenderable {
                 gl.glColor3ub((byte) pickColor.getRed(), (byte) pickColor.getGreen(), (byte) pickColor.getBlue());
             }
 
-            // Render a unit cube and apply a scaling factor to scale the cube to the appropriate size.
-            gl.glScaled(size,size,size);
+            // Render a unit cube and apply a scaling factor to scale the cube to the appropriate scale.
+            gl.glScaled(scale, scale, scale);
             this.drawUnitCube(dc);
         }
         finally
