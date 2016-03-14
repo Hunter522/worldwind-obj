@@ -12,10 +12,7 @@ import javax.media.opengl.GL2;
 import java.nio.Buffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * Represents a generic 3D mesh. A mesh can be a polygonal, polyline,
@@ -48,6 +45,12 @@ public class Mesh {
     }
 
     protected MeshType meshType;
+
+    // VBO Cache. Whenever a VBO is to be loaded, it first checks here to see if
+    // the mesh already has a VBO. If so, then it will use the existing VBO. The key
+    // is the mesh's name, so take care into keeping unique names for each mesh!
+    private static Map<String, int[]> vboCache = new HashMap<>();
+    private static Map<String, int[]> eboCache = new HashMap<>();
 
 
     public static final class Builder {
@@ -130,24 +133,30 @@ public class Mesh {
 
     public void genGlBuffers(DrawContext dc) {
         final GL2 gl = dc.getGL().getGL2();
-        try {
-            gl.glGenBuffers(1, vboIds, 0);                      // gen 1 buffer for VBO
-            gl.glBindBuffer(GL.GL_ARRAY_BUFFER, vboIds[0]);     // bind buffer ID as VBO
-            gl.glBufferData(GL.GL_ARRAY_BUFFER, vboBuf.limit() * Buffers.SIZEOF_FLOAT, vboBuf.rewind(), GL.GL_STATIC_DRAW);   // copy data to buffer
-            generatedGlBuffers = true;
-        } finally {
-            gl.glBindBuffer(GL.GL_ARRAY_BUFFER, 0);             // unbind buffer
+        if(!vboCache.containsKey(name)) {
+            try {
+                gl.glGenBuffers(1, vboIds, 0);                      // gen 1 buffer for VBO
+                gl.glBindBuffer(GL.GL_ARRAY_BUFFER, vboIds[0]);     // bind buffer ID as VBO
+                gl.glBufferData(GL.GL_ARRAY_BUFFER, vboBuf.limit() * Buffers.SIZEOF_FLOAT, vboBuf.rewind(), GL.GL_STATIC_DRAW);   // copy data to buffer
+                generatedGlBuffers = true;
+                vboCache.put(name, vboIds);
+            } finally {
+                gl.glBindBuffer(GL.GL_ARRAY_BUFFER, 0);             // unbind buffer
+            }
         }
 
-        getIndices().ifPresent(indices -> {
-            try {
-                gl.glGenBuffers(1, eboIds, 0);                              // gen 1 buffer for EBO
-                gl.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, eboIds[0]);     // bind buffer ID as EBO
-                gl.glBufferData(GL.GL_ELEMENT_ARRAY_BUFFER, indices.limit() * Buffers.SIZEOF_INT, indices.rewind(), GL.GL_STATIC_DRAW);   // copy data to buffer
-            } finally {
-                gl.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, 0);             // unbind buffer
-            }
-        });
+        if(!eboCache.containsKey(name)) {
+            getIndices().ifPresent(indices -> {
+                try {
+                    gl.glGenBuffers(1, eboIds, 0);                              // gen 1 buffer for EBO
+                    gl.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, eboIds[0]);     // bind buffer ID as EBO
+                    gl.glBufferData(GL.GL_ELEMENT_ARRAY_BUFFER, indices.limit() * Buffers.SIZEOF_INT, indices.rewind(), GL.GL_STATIC_DRAW);   // copy data to buffer
+                    eboCache.put(name, eboIds);
+                } finally {
+                    gl.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, 0);             // unbind buffer
+                }
+            });
+        }
     }
 
     public String getName() {
@@ -171,11 +180,11 @@ public class Mesh {
     }
 
     public int[] getVboIds() {
-        return vboIds;
+        return vboCache.get(name);
     }
 
     public int[] getEboIds() {
-        return eboIds;
+        return eboCache.get(name);
     }
 
     public boolean isGeneratedGlBuffers() {

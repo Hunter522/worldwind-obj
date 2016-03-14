@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 
+//TODO: Allow an ObjModel to be cloned so multiple instances can exist without having to load from a file every time
 /**
  * Represents a Wavefront .OBJ 3d model. This class directly references a .OBJ
  * file. Upon construction, the .OBJ file is parsed and the meshes/objects are
@@ -59,6 +60,7 @@ public class ObjModel implements OrderedRenderable {
 
     private ObjModel() {
         opacity = 1.0f;
+        scale = 1.0f;
         position = Position.ZERO;
     }
 
