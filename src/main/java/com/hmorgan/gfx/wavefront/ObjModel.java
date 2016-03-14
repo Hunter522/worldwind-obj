@@ -5,6 +5,7 @@ import com.jogamp.common.nio.Buffers;
 import gov.nasa.worldwind.geom.*;
 import gov.nasa.worldwind.pick.PickSupport;
 import gov.nasa.worldwind.render.DrawContext;
+import gov.nasa.worldwind.render.Material;
 import gov.nasa.worldwind.render.OrderedRenderable;
 import gov.nasa.worldwind.util.OGLStackHandler;
 import gov.nasa.worldwind.util.OGLUtil;
@@ -41,12 +42,14 @@ public class ObjModel implements OrderedRenderable {
 
     private Map<String, Mesh> meshes;       // collection of Meshes
     private float opacity;
+    private Material material;
 
     private Position position;              // geographic position of the cube
     private double roll;                    // roll (degrees)
     private double pitch;                   // pitch (degrees)
     private double yaw;                     // yaw (degrees)
     private double scale;                   // scale (1.0 is normal)
+
 
     // Determined each frame
     protected long frameTimestamp = -1L;    // frame timestamp, increments during each render cycle
@@ -93,6 +96,27 @@ public class ObjModel implements OrderedRenderable {
      */
     public ObjModel(Map<String, Mesh> meshMap) {
         this.meshes = meshMap;
+    }
+
+    /**
+     * Copy constructor. This only does a shallow copy but is ok because all fields
+     * are either immutable or primitive.
+     *
+     * @param other the {@link ObjModel} to copy
+     */
+    public ObjModel(ObjModel other) {
+        this.meshes = other.meshes;
+        this.opacity = other.opacity;
+        this.position = other.position;
+        this.roll = other.roll;
+        this.pitch = other.pitch;
+        this.yaw = other.yaw;
+        this.scale = other.scale;
+        this.frameTimestamp = other.frameTimestamp;
+        this.placePoint = other.placePoint;
+        this.eyeDistance = other.eyeDistance;
+        this.extent = other.extent;
+        this.pickSupport = other.pickSupport;
     }
 
     @Override
@@ -311,7 +335,12 @@ public class ObjModel implements OrderedRenderable {
                 if(!dc.isPickingMode())
                     gl.glNormalPointer(GL.GL_FLOAT, Buffers.SIZEOF_FLOAT*6, Buffers.SIZEOF_FLOAT*3);
 
-                mesh.getMaterial().apply(gl, GL2.GL_FRONT_AND_BACK, opacity);
+
+                if(this.material == null)   // use mesh's material
+                    mesh.getMaterial().apply(gl, GL2.GL_FRONT_AND_BACK, opacity);
+                else                        // use override material for entire model
+                    this.material.apply(gl, GL2.GL_FRONT_AND_BACK);
+
                 if(opacity < 1.0f) {
 //                    gl.glDepthMask(false);
 
@@ -349,6 +378,19 @@ public class ObjModel implements OrderedRenderable {
 
     public Map<String, Mesh> getMeshes() {
         return meshes;
+    }
+
+    public Material getMaterial() {
+        return material;
+    }
+
+    /**
+     * Sets the material for the entire model, overriding any material that the underlying meshes may have.
+     *
+     * @param material the {@link Material} to set
+     */
+    public void setMaterial(Material material) {
+        this.material = material;
     }
 
     public float getOpacity() {
