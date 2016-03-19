@@ -3,6 +3,7 @@ package com.hmorgan.gfx.wavefront;
 import com.hmorgan.gfx.Mesh;
 import com.jogamp.common.nio.Buffers;
 import gov.nasa.worldwind.geom.*;
+import gov.nasa.worldwind.geom.Vec4;
 import gov.nasa.worldwind.pick.PickSupport;
 import gov.nasa.worldwind.render.DrawContext;
 import gov.nasa.worldwind.render.Material;
@@ -16,8 +17,9 @@ import java.awt.*;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.List;
+import java.util.stream.Collectors;
 
-//TODO: Allow an ObjModel to be cloned so multiple instances can exist without having to load from a file every time
 /**
  * Represents a Wavefront .OBJ 3d model. This class directly references a .OBJ
  * file. Upon construction, the .OBJ file is parsed and the meshes/objects are
@@ -41,21 +43,19 @@ import java.util.*;
 public class ObjModel implements OrderedRenderable {
 
     private Map<String, Mesh> meshes;       // collection of Meshes
-    private float opacity;
     private Material material;
-
+    private float opacity;
     private Position position;              // geographic position of the cube
     private double roll;                    // roll (degrees)
     private double pitch;                   // pitch (degrees)
     private double yaw;                     // yaw (degrees)
     private double scale;                   // scale (1.0 is normal)
 
-
     // Determined each frame
     protected long frameTimestamp = -1L;    // frame timestamp, increments during each render cycle
     protected Vec4 placePoint;              // cartesian position of the cube, computed from #position
     protected double eyeDistance;           // distance from the eye point to the cube
-    protected Extent extent;                // extent of this model which is used to compute frustum intersection
+    private Box boundingBox;                // extent of this model which is used to compute frustum intersection
 
     private static final OGLStackHandler oglStackHandler = new OGLStackHandler(); // used in beginDrawing/endDrawing
     protected PickSupport pickSupport = new PickSupport();
@@ -95,6 +95,7 @@ public class ObjModel implements OrderedRenderable {
      * @param meshMap Map of all meshes for this ObjModel
      */
     public ObjModel(Map<String, Mesh> meshMap) {
+        this();
         this.meshes = meshMap;
     }
 
@@ -115,8 +116,8 @@ public class ObjModel implements OrderedRenderable {
         this.frameTimestamp = other.frameTimestamp;
         this.placePoint = other.placePoint;
         this.eyeDistance = other.eyeDistance;
-        this.extent = other.extent;
         this.pickSupport = other.pickSupport;
+        this.boundingBox = other.boundingBox;
     }
 
     @Override
@@ -133,13 +134,13 @@ public class ObjModel implements OrderedRenderable {
         // 2) As a normal renderable. The cube is added to the ordered renderable queue.
         // 3) As an OrderedRenderable. The cube is drawn.
 
-        if (this.extent != null)
-        {
-            if (!this.intersectsFrustum(dc))
+        // if shape does not intersect with frustum or is smaller than a pixel in scale
+        // don't render it
+        if(boundingBox != null) {
+            if(!this.intersectsFrustum(dc))
                 return;
 
-            // If the shape is less that a pixel in scale, don't render it.
-            if (dc.isSmall(this.extent, 1))
+            if(dc.isSmall(boundingBox, 1))
                 return;
         }
 
@@ -168,13 +169,65 @@ public class ObjModel implements OrderedRenderable {
      * @return true if this cube intersects the frustum, otherwise false.
      */
     protected boolean intersectsFrustum(DrawContext dc) {
-        if (this.extent == null)
+        if(boundingBox == null)
             return true; // don't know the visibility, shape hasn't been computed yet
 
-        if (dc.isPickingMode())
-            return dc.getPickFrustums().intersectsAny(this.extent);
+        if(dc.isPickingMode())
+            return dc.getPickFrustums().intersectsAny(boundingBox);
 
-        return dc.getView().getFrustumInModelCoordinates().intersects(this.extent);
+        return dc.getView().getFrustumInModelCoordinates().intersects(boundingBox);
+    }
+
+    /**
+     * Computes the bounding box of this ObjModel, which includes all of the meshes.
+     *
+     * @param dc the active draw context
+     */
+    private Box computeBoundingBox(DrawContext dc) {
+        // create a List<Vec4> from all of our meshs' vertices
+        final List<Vec4> verts =
+                meshes.values()
+                        .parallelStream()
+                        .flatMap(mesh -> mesh.getVertices().stream())
+                        .map(vertex -> new Vec4(vertex.getPosition().getX(), vertex.getPosition().getY(), vertex.getPosition().getZ(), 1f))
+                        .collect(Collectors.toList());
+
+        // transform the vertices by the modelview matrix
+        // instead of transforming all the coords, we can just transform the corners of
+        // the bounding box, much faster!
+        final Matrix modelMatrix = computeModelMatrix(dc).multiply(Matrix.fromScale(scale));
+        final List<Vec4> transformedCorners = Arrays.asList(Box.computeBoundingBox(verts).getCorners())
+                .stream()
+                .map(vec4 -> vec4.transformBy4(modelMatrix))
+                .collect(Collectors.toList());
+
+        return Box.computeBoundingBox(transformedCorners);
+    }
+
+    /**
+     * Computes the Model matrix
+     *
+     * @param dc the current draw context
+     * @return the Model matrix
+     */
+    private Matrix computeModelMatrix(DrawContext dc) {
+        final Matrix attitudeMatrix = Matrix.fromRotationZ(Angle.fromDegrees(-yaw))
+                .multiply(Matrix.fromRotationX(Angle.fromDegrees(pitch)))
+                .multiply(Matrix.fromRotationY(Angle.fromDegrees(roll)));
+
+        return dc.getGlobe()
+                .computeSurfaceOrientationAtPosition(this.position)
+                .multiply(attitudeMatrix);
+    }
+
+    /**
+     * Computes the Model-View matrix for this object.
+     *
+     * @param dc the active draw context
+     * @return the Model-View matrix
+     */
+    private Matrix computeModelViewMatrix(DrawContext dc) {
+        return dc.getView().getModelviewMatrix().multiply(computeModelMatrix(dc));
     }
 
     /**
@@ -215,11 +268,12 @@ public class ObjModel implements OrderedRenderable {
             // before lighting is computed.
             gl.glEnable(GL2.GL_NORMALIZE);
 
-            gl.glEnable(GL2.GL_POLYGON_SMOOTH);
-            gl.glHint(GL2.GL_POLYGON_SMOOTH_HINT, GL2.GL_NICEST);
-
-            gl.glEnable(GL2.GL_LINE_SMOOTH);
-            gl.glHint(GL.GL_LINE_SMOOTH_HINT, GL.GL_NICEST);
+            // Polygon edge artifacts occur when GLCapabilities mutlisampling isnt enabled
+//            gl.glEnable(GL2.GL_POLYGON_SMOOTH);
+//            gl.glHint(GL2.GL_POLYGON_SMOOTH_HINT, GL2.GL_NICEST);
+//
+//            gl.glEnable(GL2.GL_LINE_SMOOTH);
+//            gl.glHint(GL.GL_LINE_SMOOTH_HINT, GL.GL_NICEST);
         }
 
         gl.glDisable(GL.GL_CULL_FACE);
@@ -228,17 +282,7 @@ public class ObjModel implements OrderedRenderable {
         // origin at the cube's center position, the Y axis pointing North, the X axis pointing East, and the Z axis
         // normal to the globe.
         gl.glMatrixMode(GL2.GL_MODELVIEW);
-
-        Matrix matrix = dc.getGlobe().computeSurfaceOrientationAtPosition(this.position);
-        matrix = dc.getView().getModelviewMatrix().multiply(matrix);
-
-        final Matrix attitudeMatrix =
-                Matrix.fromRotationZ(Angle.fromDegrees(-yaw))
-                .multiply(Matrix.fromRotationX(Angle.fromDegrees(pitch)))
-                .multiply(Matrix.fromRotationY(Angle.fromDegrees(roll)));
-        matrix = matrix.multiply(attitudeMatrix);
-
-
+        final Matrix matrix = computeModelViewMatrix(dc);
         double[] matrixArray = new double[16];
         matrix.toArray(matrixArray, 0, false);
         gl.glLoadMatrixd(matrixArray, 0);
@@ -284,17 +328,15 @@ public class ObjModel implements OrderedRenderable {
         // This method is called twice each frame: once during picking and once during rendering. We only need to
         // compute the placePoint and eye distance once per frame, so check the frame timestamp to see if this is a
         // new frame.
-        if (dc.getFrameTimeStamp() != this.frameTimestamp)
-        {
+        if(dc.getFrameTimeStamp() != this.frameTimestamp) {
             // Convert the cube's geographic position to a position in Cartesian coordinates.
             this.placePoint = dc.getGlobe().computePointFromPosition(this.position);
 
             // Compute the distance from the eye to the cube's position.
             this.eyeDistance = dc.getView().getEyePoint().distanceTo3(this.placePoint);
 
-            // Compute a sphere that encloses the cube. We'll use this sphere for intersection calculations to determine
-            // if the cube is actually visible.
-            this.extent = new Sphere(this.placePoint, Math.sqrt(3.0) * scale / 2.0);
+            // Compute bounding box for frustum intersection calculation
+            this.boundingBox = computeBoundingBox(dc);
 
             this.frameTimestamp = dc.getFrameTimeStamp();
         }
