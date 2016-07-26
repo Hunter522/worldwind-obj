@@ -1,19 +1,24 @@
 package com.hmorgan.gfx;
 
 import com.hackoeur.jglm.Vec3;
+import com.hmorgan.gfx.wavefront.WavefrontMaterial;
 import com.jogamp.common.nio.Buffers;
 import gov.nasa.worldwind.render.DrawContext;
-import gov.nasa.worldwind.render.Material;
-import gov.nasa.worldwind.util.WWBufferUtil;
-import gov.nasa.worldwind.util.WWUtil;
+import gov.nasa.worldwind.render.LazilyLoadedTexture;
+import gov.nasa.worldwind.render.WWTexture;
 
+import javax.imageio.ImageIO;
 import javax.media.opengl.GL;
 import javax.media.opengl.GL2;
-import java.nio.Buffer;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.nio.file.Path;
 import java.util.*;
 
+// TODO: Implement textures/materials
 /**
  * Represents a generic 3D mesh. A mesh can be a polygonal, polyline,
  * or a point-based mesh.
@@ -26,17 +31,20 @@ import java.util.*;
 public class Mesh {
 
     private String name;
+
     protected  List<Vertex> vertices;
 //    protected FloatBuffer vertices;     // v0x/v0y/v0z/v1x/v1y/v1z...
 //    protected FloatBuffer normals;      // n0x/n0y/n0z/n1x/n1y/n1z...
 //    protected FloatBuffer textureCoords;// t0x/v0y/t1x/t1y...
     protected IntBuffer indices;        // v1/v2/v3 or v1/n1/v2/n2 or /v1/t1/n1/v2/t2/n2
     protected FloatBuffer vboBuf;       // vvvvnnnn (if no normals, then just vvvv)
-    private Material material;
+    private WavefrontMaterial material;
+    private WWTexture texture;
 
     private int[] vboIds;               // vertex buffer object ids
     private int[] eboIds;               // element buffer object ids
     private boolean generatedGlBuffers;
+    private boolean hasValidDiffuseTextureMap; // true if material diffuse texture map exists
 
     public enum MeshType {
         POINTS_MESH,            // mesh contains just points
@@ -51,6 +59,7 @@ public class Mesh {
     // is the mesh's name, so take care into keeping unique names for each mesh!
     private static Map<String, int[]> vboCache = new HashMap<>();
     private static Map<String, int[]> eboCache = new HashMap<>();
+    private static Map<String, WWTexture> textureCache = new HashMap<>();
 
 
     public static final class Builder {
@@ -58,12 +67,12 @@ public class Mesh {
         private List<Vertex> vertices;
         private IntBuffer indices;
         private MeshType meshType;
-        private Material material;
+        private WavefrontMaterial material;
 
         public Builder() {
             vertices = new ArrayList<>();
             meshType = MeshType.POLYGON_MESH;   // most common
-            material = Material.GRAY;
+            material = WavefrontMaterial.GRAY;
         }
 
         public Builder setName(String val) {
@@ -86,7 +95,7 @@ public class Mesh {
             return this;
         }
 
-        public Builder setMaterial(Material val) {
+        public Builder setMaterial(WavefrontMaterial val) {
             material = val;
             return this;
         }
@@ -106,10 +115,70 @@ public class Mesh {
         eboIds = new int[1];
         generatedGlBuffers = false;
 
-        // create VBO buffer, if normals exist then layout is vvvvnnnn, else its just vvvv
+        if(material != null) {
+            if(material.getDiffuseTextureMapPath() != null) {
+                if(textureCache.containsKey(material.getDiffuseTextureMapPath().toString())) {
+                    // texture in cache
+                    texture = textureCache.get(material.getDiffuseTextureMapPath().toString());
+                    hasValidDiffuseTextureMap = true;
+                } else {
+                    // texture not in cache, load it (note this does load it into GPU
+                    // memory..since it's lazily loaded)
+                    try {
+                        texture = new LazilyLoadedTexture(ImageIO.read(material.getDiffuseTextureMapPath().toFile()), true);
+                        textureCache.put(material.getDiffuseTextureMapPath().toString(), texture);
+                        hasValidDiffuseTextureMap = true;
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
 
-        // create VBO, layout is vvvnnntttvvvnnnttt...
-        vboBuf = FloatBuffer.allocate(vertices.size()*8);
+//        // check to see if the material texture is valid:
+//        if(material != null) {
+//            if(material.getDiffuseTextureMapPath() != null) {
+//                if(material.getDiffuseTextureMapPath().toFile().exists()) {
+//                    hasValidDiffuseTextureMap = true;
+//                } else {
+//                    hasValidDiffuseTextureMap = false;
+//                    System.err.println("WARNING: Mesh " + name + " diffuse texture map " + material.getDiffuseTextureMapPath() + " not a valid path");
+//                }
+//            }
+//        }
+//
+//
+//        if(hasValidDiffuseTextureMap) {
+//            BufferedImage diffuseTextureMapBI = ImageIO.read(diffuseTextureMapPath.toFile();
+//        }
+//
+//        // gen textures
+//        if(hasValidDiffuseTextureMap) {
+//            final Path diffuseTextureMapPath = material.getDiffuseTextureMapPath();
+//            try {
+//                if(textureCache.containsKey(diffuseTextureMapPath.toString()))
+//                    texture = textureCache.get(diffuseTextureMapPath.toString());
+//                else {
+//                    texture = new LazilyLoadedTexture(diffuseTextureMapBI, true);
+//                    textureCache.put(diffuseTextureMapPath.toString(), texture);
+//                }
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//            }
+//        }
+    }
+
+    public void genGlBuffers(DrawContext dc) {
+        final GL2 gl = dc.getGL().getGL2();
+
+
+
+        // create VBO, layout is:
+        //  - vertices, normals, and texels: vvvnnntttvvvnnnttt...
+        //  - vertices, normals:             vvvnnnvvvnnn...
+        //  - vertices:                      vvvvvv...
+        final int stride = (hasValidDiffuseTextureMap) ? 8 : 6;
+        vboBuf = FloatBuffer.allocate(vertices.size() * stride);
         for(Vertex v : vertices) {
             vboBuf.put(v.getPosition().getX());
             vboBuf.put(v.getPosition().getY());
@@ -121,18 +190,22 @@ public class Mesh {
                 vboBuf.put(n.getZ());
             });
 
-            // ignore textures for now
-//            v.getTexCoord().ifPresent(t -> {
-//                vboBuf.put(t.getX());
-//                vboBuf.put(t.getY());
-//            });
+            // if diffuse texture map file exists, then include the tex coords
+            if(hasValidDiffuseTextureMap) {
+                final BufferedImage textureBI = (BufferedImage) texture.getImageSource();
+                if(v.getTexCoord().isPresent()) {
+                    final Vec3 t = v.getTexCoord().get();
+                    vboBuf.put(t.getX());
+
+                    // for some reason the Y/V coordinate is flipped
+                    vboBuf.put(textureBI.getHeight() - t.getY());
+                }
+            }
         }
 
         vboBuf.flip();
-    }
 
-    public void genGlBuffers(DrawContext dc) {
-        final GL2 gl = dc.getGL().getGL2();
+        // gen vbo
         if(!vboCache.containsKey(name)) {
             try {
                 gl.glGenBuffers(1, vboIds, 0);                      // gen 1 buffer for VBO
@@ -145,6 +218,7 @@ public class Mesh {
             }
         }
 
+        // gen ebo
         if(!eboCache.containsKey(name)) {
             getIndices().ifPresent(indices -> {
                 try {
@@ -175,8 +249,12 @@ public class Mesh {
         return vboBuf;
     }
 
-    public Material getMaterial() {
-        return material;
+    public Optional<WavefrontMaterial> getMaterial() {
+        return Optional.ofNullable(material);
+    }
+
+    public Optional<WWTexture> getTexture() {
+        return Optional.ofNullable(texture);
     }
 
     public int[] getVboIds() {
@@ -193,6 +271,10 @@ public class Mesh {
 
     public MeshType getMeshType() {
         return meshType;
+    }
+
+    public boolean isHasValidDiffuseTextureMap() {
+        return hasValidDiffuseTextureMap;
     }
 
     @Override

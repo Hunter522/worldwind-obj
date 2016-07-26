@@ -7,6 +7,7 @@ import gov.nasa.worldwind.avlist.AVKey;
 import gov.nasa.worldwind.awt.WorldWindowGLCanvas;
 import gov.nasa.worldwind.geom.Position;
 import gov.nasa.worldwind.layers.RenderableLayer;
+import gov.nasa.worldwind.render.Material;
 
 import javax.swing.*;
 import java.awt.*;
@@ -43,7 +44,10 @@ public class HelloObj {
         // create an ObjModel from a obj file
         ObjModel objModel = null;
         try {
-            objModel = new ObjModel("monkey.obj");
+            objModel = new ObjModel("v22/v22.obj");
+//            objModel.setTextureDisabled(true);
+//            objModel.setMaterial(Material.RED);
+//            objModel.setOpacity(0.2f);
         } catch (IOException e) {
             e.printStackTrace();
             System.exit(-1);
@@ -52,7 +56,7 @@ public class HelloObj {
         // set the ObjModel's position and orientation
         // this can be changed at any time (e.g. setting position over time)
         objModel.setPosition(Position.fromDegrees(35.0, -120.0, 3000));
-        objModel.setScale(500);
+        objModel.setScale(200);
         objModel.setPitch(10.0);
         objModel.setRoll(1.0);
         objModel.setYaw(90.0);

@@ -44,6 +44,7 @@ public class ObjModel implements OrderedRenderable {
 
     private Map<String, Mesh> meshes;       // collection of Meshes
     private Material material;
+    private boolean textureDisabled;        // true to disable texture (if available)
     private float opacity;
     private Position position;              // geographic position of the cube
     private double roll;                    // roll (degrees)
@@ -75,7 +76,8 @@ public class ObjModel implements OrderedRenderable {
      */
     public ObjModel(String fileName) throws IOException {
         this();
-        this.meshes = ObjLoader.loadObjMeshes(fileName);
+        final ObjLoader objLoader = new ObjLoader();
+        this.meshes = objLoader.loadObjMeshes(fileName);
     }
 
     /**
@@ -86,17 +88,18 @@ public class ObjModel implements OrderedRenderable {
      */
     public ObjModel(Path filePath) throws IOException {
         this();
-        this.meshes = ObjLoader.loadObjMeshes(filePath);
+        final ObjLoader objLoader = new ObjLoader();
+        this.meshes = objLoader.loadObjMeshesV2(filePath);
     }
 
     /**
      * Constructs a new ObjModel.
      *
-     * @param meshMap Map of all meshes for this ObjModel
+     * @param meshes Map of all meshes for this ObjModel
      */
-    public ObjModel(Map<String, Mesh> meshMap) {
+    public ObjModel(Map<String, Mesh> meshes) {
         this();
-        this.meshes = meshMap;
+        this.meshes = meshes;
     }
 
     /**
@@ -185,21 +188,21 @@ public class ObjModel implements OrderedRenderable {
      */
     private Box computeBoundingBox(DrawContext dc) {
         // create a List<Vec4> from all of our meshs' vertices
-        final List<Vec4> verts =
-                meshes.values()
-                        .parallelStream()
-                        .flatMap(mesh -> mesh.getVertices().stream())
-                        .map(vertex -> new Vec4(vertex.getPosition().getX(), vertex.getPosition().getY(), vertex.getPosition().getZ(), 1f))
-                        .collect(Collectors.toList());
+        final List<Vec4> verts = meshes
+                .values()
+                .parallelStream()
+                .flatMap(mesh -> mesh.getVertices().stream())
+                .map(vertex -> new Vec4(vertex.getPosition().getX(), vertex.getPosition().getY(), vertex.getPosition().getZ(), 1f))
+                .collect(Collectors.toList());
 
-        // transform the vertices by the modelview matrix
+        // compute the bounding box then transform the vertices by the modelview matrix
         // instead of transforming all the coords, we can just transform the corners of
         // the bounding box, much faster!
         final Matrix modelMatrix = computeModelMatrix(dc).multiply(Matrix.fromScale(scale));
-        final List<Vec4> transformedCorners = Arrays.asList(Box.computeBoundingBox(verts).getCorners())
-                .stream()
-                .map(vec4 -> vec4.transformBy4(modelMatrix))
-                .collect(Collectors.toList());
+        final List<Vec4> transformedCorners =
+                Arrays.stream(Box.computeBoundingBox(verts).getCorners())
+                      .map(vec4 -> vec4.transformBy4(modelMatrix))
+                      .collect(Collectors.toList());
 
         return Box.computeBoundingBox(transformedCorners);
     }
@@ -268,6 +271,9 @@ public class ObjModel implements OrderedRenderable {
             // before lighting is computed.
             gl.glEnable(GL2.GL_NORMALIZE);
 
+//            gl.glEnable(GL.GL_TEXTURE_2D);
+//            gl.glEnableClientState(GL2.GL_TEXTURE_COORD_ARRAY);
+
             // Polygon edge artifacts occur when GLCapabilities mutlisampling isnt enabled
 //            gl.glEnable(GL2.GL_POLYGON_SMOOTH);
 //            gl.glHint(GL2.GL_POLYGON_SMOOTH_HINT, GL2.GL_NICEST);
@@ -308,6 +314,9 @@ public class ObjModel implements OrderedRenderable {
             // Were applying a scale transform on the modelview matrix, so the normal vectors must be re-normalized
             // before lighting is computed.
             gl.glDisable(GL2.GL_NORMALIZE);
+
+//            gl.glDisable(GL.GL_TEXTURE_2D);
+//            gl.glDisableClientState(GL2.GL_TEXTURE_COORD_ARRAY);
         }
 
         gl.glDisableClientState(GL2.GL_VERTEX_ARRAY);
@@ -367,27 +376,88 @@ public class ObjModel implements OrderedRenderable {
             gl.glScaled(scale, scale, scale);
             // for each mesh, draw it
             meshes.values().forEach(mesh -> {
-                final int vboBufNumVerts = (mesh.getVboBuf().limit() / 2) / 3;
+                final int strideCount = (mesh.getTexture().isPresent()) ? 8 : 6;
+                final int vboBufNumVerts = (mesh.getVboBuf().limit() / strideCount);
                 gl.glBindBuffer(GL.GL_ARRAY_BUFFER, mesh.getVboIds()[0]);
                 gl.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, mesh.getEboIds()[0]);
 
-                // VBO layout: vvvnnntttvvvnnnttt or just vvvnnnvvvnnn (interleaved)
-                gl.glVertexPointer(3, GL.GL_FLOAT, Buffers.SIZEOF_FLOAT*6, 0);
+                final int stride = Buffers.SIZEOF_FLOAT * strideCount;
+                // VBO layout: vvvnnnttvvvnnntt or just vvvnnnvvvnnn (interleaved)
+                gl.glVertexPointer(3, GL.GL_FLOAT, stride, 0);
 
-                if(!dc.isPickingMode())
-                    gl.glNormalPointer(GL.GL_FLOAT, Buffers.SIZEOF_FLOAT*6, Buffers.SIZEOF_FLOAT*3);
+                if (!dc.isPickingMode())
+                    gl.glNormalPointer(GL.GL_FLOAT, stride, Buffers.SIZEOF_FLOAT * 3);
 
+                if (!textureDisabled && mesh.getTexture().isPresent() && mesh.getTexture().get().bind(dc)) {
+                    gl.glEnable(GL.GL_TEXTURE_2D);
+                    gl.glEnableClientState(GL2.GL_TEXTURE_COORD_ARRAY);
+                    gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT);
+                    gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT);
+                    gl.glTexCoordPointer(2, GL.GL_FLOAT, stride, Buffers.SIZEOF_FLOAT * 6);
+                }
 
-                if(this.material == null)   // use mesh's material
-                    mesh.getMaterial().apply(gl, GL2.GL_FRONT_AND_BACK, opacity);
-                else                        // use override material for entire model
-                    this.material.apply(gl, GL2.GL_FRONT_AND_BACK);
+                float opacityToUse = opacity;
+                Material materialToUse = null;
+                if(this.material != null) {
+                    // use override material
+                    materialToUse = this.material;
+                } else if(mesh.getMaterial().isPresent()) {
+                    // use mesh material
+                    // use mesh opacity
+                    materialToUse = mesh.getMaterial().get();
+                    opacityToUse = materialToUse.getDiffuse().getAlpha() / 255.0f;
+                } else {
+                    // use fallback material
+                    materialToUse = Material.GRAY;
+                }
 
-                if(opacity < 1.0f) {
+                if (opacityToUse < 1.0f) {
 //                    gl.glDepthMask(false);
 
+//                    final float f = 0.75f; // attenuation factor
+//                    gl.glDisable(GL.GL_CULL_FACE);
+//                    gl.glDepthFunc(GL.GL_LESS);
+//                    // render teapot with alpha = 0, to prime the depth buffer
+//                    materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, 0.0f);
+//                    gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
+//
+//                    gl.glEnable(GL.GL_CULL_FACE);
+//                    gl.glCullFace(GL.GL_FRONT);
+//                    gl.glDepthFunc(GL.GL_ALWAYS);
+//                    // render teapot with alpha = f*alpha
+//                    materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, f * opacityToUse);
+//                    gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
+//
+//                    gl.glEnable(GL.GL_CULL_FACE);
+//                    gl.glCullFace(GL.GL_FRONT);
+//                    gl.glDepthFunc(GL.GL_LEQUAL);
+//                    // render teapot with alpha = (alpha-f*alpha)/(1.0-f*alpha)
+//                    materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, (opacityToUse-f*opacityToUse)/(1.0f-f*opacityToUse));
+//                    gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
+//
+//                    gl.glEnable(GL.GL_CULL_FACE);
+//                    gl.glCullFace(GL.GL_BACK);
+//                    gl.glDepthFunc(GL.GL_ALWAYS);
+//                    // render teapot with alpha = f*alpha
+//                    materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, f * opacityToUse);
+//                    gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
+//
+//                    // There's a trade off here. With culling enabled then a perfectly
+//                    // opaque object (alpha=1) may be wrong. With it disabled, ordering
+//                    // artifacts may appear
+////                    gl.glEnable(GL.GL_CULL_FACE);
+////                    gl.glCullFace(GL.GL_BACK);
+//                    gl.glDisable(GL.GL_CULL_FACE);
+//                    gl.glDepthFunc(GL.GL_LEQUAL);
+//                    // render teapot with alpha = (alpha-f*alpha)/(1.0-f*alpha)
+//                    materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, (opacityToUse-f*opacityToUse)/(1.0f-f*opacityToUse));
+//                    gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
+//
+//                    gl.glDisable(GL.GL_CULL_FACE);
+//                    gl.glDepthFunc(GL.GL_LEQUAL);
                     // cheap trick to achieve transparency
                     // need to render all back faces first then all front faces using culling
+                    materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, opacityToUse);
                     gl.glEnable(GL.GL_CULL_FACE);
                     gl.glCullFace(GL.GL_FRONT);
                     gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
@@ -395,7 +465,13 @@ public class ObjModel implements OrderedRenderable {
                     gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
                     gl.glDisable(GL.GL_CULL_FACE);
                 } else {
+                    materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, opacityToUse);
                     gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
+                }
+
+                if (!textureDisabled && mesh.getTexture().isPresent()) {
+                    gl.glDisable(GL.GL_TEXTURE_2D);
+                    gl.glDisableClientState(GL2.GL_TEXTURE_COORD_ARRAY);
                 }
 //                gl.glDrawElements(GL.GL_TRIANGLES, mesh.getIndices().get().limit(), GL.GL_UNSIGNED_INT, 0);
             });
@@ -433,6 +509,14 @@ public class ObjModel implements OrderedRenderable {
      */
     public void setMaterial(Material material) {
         this.material = material;
+    }
+
+    public boolean isTextureDisabled() {
+        return textureDisabled;
+    }
+
+    public void setTextureDisabled(boolean textureDisabled) {
+        this.textureDisabled = textureDisabled;
     }
 
     public float getOpacity() {

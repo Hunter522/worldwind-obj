@@ -27,6 +27,61 @@ public class ObjModelTest {
 
     }
 
+
+    @Test
+    public void testLoadCrateMultiple() throws Exception {
+        testModel = new ObjModel("crate_multiple/Crate_multiple.obj");
+
+        assertEquals(3, testModel.getMeshes().size());
+    }
+
+    @Test
+    public void testLoadV22() throws Exception {
+        testModel = new ObjModel("v22/v22.obj");
+
+        System.out.println("Done");
+    }
+
+    @Test
+    public void testReadXWing() throws Exception {
+        testModel = new ObjModel("x-wing/x-wing-fixed.obj");
+
+        System.out.println("Done");
+
+    }
+
+    @Test
+    public void testReadBixler() throws Exception {
+        testModel = new ObjModel("bixler/bixler.obj");
+
+        System.out.println("Done");
+    }
+
+    @Test
+    public void testReadRubberDuck() throws Exception {
+        final String foo = "Rubber Duck.mtl another file.mtl";
+
+
+        testModel = new ObjModel("rubber-duck/Rubber Duck.obj");
+
+        System.out.println("DOne");
+    }
+
+    @Test
+    public void testReadCrate() throws Exception {
+        testModel = new ObjModel("crate/Crate1_fixed.obj");
+
+        System.out.println("Done");
+    }
+
+    @Test
+    public void testLoadMQ9() throws Exception {
+        testModel = new ObjModel("MQ-9-triangulated.obj");
+
+        System.out.println("Done");
+//        assertEquals(Mesh.MeshType.POLYGON_MESH, polygonMesh.getMeshType());
+    }
+
     @Test
     public void testLoadPolygonMesh() throws Exception {
         testModel = new ObjModel("cube.obj");
