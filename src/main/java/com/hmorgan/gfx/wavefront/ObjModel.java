@@ -156,7 +156,13 @@ public class ObjModel implements OrderedRenderable {
 
     @Override
     public void pick(DrawContext dc, Point point) {
-        render(dc);
+        try{
+            pickSupport.beginPicking(dc);
+            render(dc);
+        }finally {
+            pickSupport.endPicking(dc);
+            pickSupport.resolvePick(dc, point, dc.getCurrentLayer());
+        }
     }
 
     @Override
@@ -201,8 +207,8 @@ public class ObjModel implements OrderedRenderable {
         final Matrix modelMatrix = computeModelMatrix(dc).multiply(Matrix.fromScale(scale));
         final List<Vec4> transformedCorners =
                 Arrays.stream(Box.computeBoundingBox(verts).getCorners())
-                      .map(vec4 -> vec4.transformBy4(modelMatrix))
-                      .collect(Collectors.toList());
+                        .map(vec4 -> vec4.transformBy4(modelMatrix))
+                        .collect(Collectors.toList());
 
         return Box.computeBoundingBox(transformedCorners);
     }
@@ -388,7 +394,7 @@ public class ObjModel implements OrderedRenderable {
                 if (!dc.isPickingMode())
                     gl.glNormalPointer(GL.GL_FLOAT, stride, Buffers.SIZEOF_FLOAT * 3);
 
-                if (!textureDisabled && mesh.getTexture().isPresent() && mesh.getTexture().get().bind(dc)) {
+                if (!dc.isPickingMode() && !textureDisabled && mesh.getTexture().isPresent() && mesh.getTexture().get().bind(dc)) {
                     gl.glEnable(GL.GL_TEXTURE_2D);
                     gl.glEnableClientState(GL2.GL_TEXTURE_COORD_ARRAY);
                     gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT);
@@ -457,7 +463,8 @@ public class ObjModel implements OrderedRenderable {
 //                    gl.glDepthFunc(GL.GL_LEQUAL);
                     // cheap trick to achieve transparency
                     // need to render all back faces first then all front faces using culling
-                    materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, opacityToUse);
+                    if(!dc.isPickingMode())
+                        materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, opacityToUse);
                     gl.glEnable(GL.GL_CULL_FACE);
                     gl.glCullFace(GL.GL_FRONT);
                     gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
@@ -465,11 +472,12 @@ public class ObjModel implements OrderedRenderable {
                     gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
                     gl.glDisable(GL.GL_CULL_FACE);
                 } else {
-                    materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, opacityToUse);
+                    if(!dc.isPickingMode())
+                        materialToUse.apply(gl, GL2.GL_FRONT_AND_BACK, opacityToUse);
                     gl.glDrawArrays(GL.GL_TRIANGLES, 0, vboBufNumVerts);
                 }
 
-                if (!textureDisabled && mesh.getTexture().isPresent()) {
+                if (!textureDisabled && mesh.getTexture().isPresent() && !dc.isPickingMode()) {
                     gl.glDisable(GL.GL_TEXTURE_2D);
                     gl.glDisableClientState(GL2.GL_TEXTURE_COORD_ARRAY);
                 }

@@ -44,7 +44,7 @@ public class HelloObj {
         // create an ObjModel from a obj file
         ObjModel objModel = null;
         try {
-            objModel = new ObjModel("v22/v22.obj");
+            objModel = new ObjModel("crate/Crate1_fixed.obj");
 //            objModel.setTextureDisabled(true);
 //            objModel.setMaterial(Material.RED);
 //            objModel.setOpacity(0.2f);
@@ -66,6 +66,9 @@ public class HelloObj {
 
         // and add the layer to the WW layers
         ww.getModel().getLayers().add(layer);
+        ww.addSelectListener(selectEvent -> {
+            System.out.println(selectEvent.getTopObject());
+        });
 
         frame.add(ww, BorderLayout.CENTER);
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
