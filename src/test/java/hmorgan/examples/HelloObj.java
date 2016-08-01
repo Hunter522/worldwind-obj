@@ -66,6 +66,8 @@ public class HelloObj {
 
         // and add the layer to the WW layers
         ww.getModel().getLayers().add(layer);
+
+        // add a select listener to WW
         ww.addSelectListener(selectEvent -> {
             System.out.println(selectEvent.getTopObject());
         });

@@ -285,6 +285,7 @@ public class ObjLoader {
 
         boolean builtFirstMesh = false;
         Mesh.Builder meshBuilder = null;
+        final String fileName = filePath.getFileName().toString();
         String currObjName = "";
 
         textures = new ArrayList<>();
@@ -311,7 +312,7 @@ public class ObjLoader {
 //                                textureCoords = new ArrayList<>();
 //                                normals = new ArrayList<>();
                                 indices = new ArrayList<>();
-                                currObjName = tokens[1];
+                                currObjName = fileName + ". " + tokens[1];
                                 break;
                             case "mtllib":
                                 // load MTL files
@@ -402,7 +403,7 @@ public class ObjLoader {
 
 
                                 indices = new ArrayList<>();
-                                currObjName = tokens[1];
+                                currObjName = fileName + ". " + tokens[1];
 
                                 meshBuilder = new Mesh.Builder();
                                 meshBuilder.setName(currObjName + "." + tokens[1]);
