@@ -8,9 +8,8 @@ import gov.nasa.worldwind.render.WWTexture;
 
 import java.awt.*;
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.IntBuffer;
@@ -44,9 +43,228 @@ public class ObjLoader {
         READ_EOF
     }
 
+    /**
+     * Convenience method to find and return the Path of a filename from this project's
+     * resources folder.
+     *
+     * @param filename filename to get a Path to
+     * @return Path to filename
+     * @throws IOException if file does not exist
+     */
+    public static Path getFilePathFromResources(String filename) throws IOException {
+        URI uri;
+        try {
+            Optional<URL> url = Optional.ofNullable(ObjModel.class.getClassLoader().getResource(filename));
+            if(url.isPresent()) {
+                uri = url.get().toURI();
+                return Paths.get(uri);
+            }
+            else
+                throw new IOException(filename + " does not exist");
+        } catch (URISyntaxException e) {
+            throw new IOException(filename + " does not exist");
+        }
+    }
+
     public ObjLoader() {
 
     }
+
+    /**f
+     *
+     * @param filePath
+     * @return
+     * @throws IOException
+     */
+    public ObjModel loadObjModel(Path filePath) throws IOException {
+        return new ObjModel(loadObjMeshesV2(filePath));
+    }
+
+    /**
+     *
+     * @param fileName
+     * @return
+     * @throws IOException
+     */
+    public Map<String, Mesh> loadObjMeshes(String fileName) throws IOException {
+        return loadObjMeshesV2(getFilePathFromResources(fileName));
+    }
+//
+//    /**
+//     * Parses the given .OBJ file and attempts to extract the useful Mesh data
+//     * from it, populating this class's meshes map.
+//     *
+//     * @param filePath Path to .OBJ file
+//     * @throws IOException
+//     */
+//    public static List<MeshTreeNode> loadObjMeshes(Path filePath) throws IOException {
+////        final Map<String, Mesh> meshMap = new HashMap<>();
+//        final List<MeshTreeNode> meshes = new ArrayList<>();
+//        boolean builtFirstMesh = false;
+//        Mesh.Builder meshBuilder = new Mesh.Builder();
+//        List<Vec3> vertices = new ArrayList<>();
+//        List<Vec3> textureCoords = new ArrayList<>();
+//        List<Vec3> normals = new ArrayList<>();
+//        List<ObjIndex> indices = new ArrayList<>();
+//        Map<String, WavefrontMaterial> materials = new HashMap<>();
+//        List<WWTexture> textures = new ArrayList<>();
+//        int currVertexCount = 0;
+//        int currNormalCount = 0;
+//        int currTexCoordCount = 0;
+//
+//        System.out.println("Parsing " + filePath.getFileName() + "...");
+//        // open file
+//        String line;
+//        BufferedReader bufferedReader = Files.newBufferedReader(filePath);
+//        while ((line = bufferedReader.readLine()) != null) {
+//            // start going through the file, reading line by line
+//            // if we read an object (o) then we need to make a new mesh
+//            // make a new list of verts, normals, texcoords, and indices
+//            // create a mesh.builder and set those lists
+//            // add the newly created mesh to the map
+//
+//            if (line.charAt(0) != '#') {  // ignore comments
+//                final String[] tokens = line.split("\\s+");
+//                if (tokens.length > 0) {
+//                    final String firstToken = tokens[0];
+//
+//                    switch (firstToken) {
+//                        case "o":
+//                            final String objectName = tokens[1];
+//
+//                            // start of new object, create mesh and add it to map
+//                            if (builtFirstMesh) {
+//                                final Mesh mesh = buildMesh(meshBuilder,
+//                                        vertices,
+//                                        textureCoords,
+//                                        normals,
+//                                        indices,
+//                                        currVertexCount,
+//                                        currNormalCount,
+//                                        currTexCoordCount);
+//                                final MeshTreeNode meshTreeNode = new MeshTreeNode.Builder()
+//                                 .
+//                                meshMap.put(mesh.getName(), mesh);
+//                                currVertexCount += vertices.size();
+//                                currNormalCount += normals.size();
+//                                currTexCoordCount += textureCoords.size();
+//                            } else {
+//                                builtFirstMesh = true;
+//                            }
+//                            // create a new mesh builder & reset working lists
+//                            meshBuilder = new Mesh.Builder();
+//                            meshBuilder.setName(objectName);
+//                            vertices = new ArrayList<>();
+//                            textureCoords = new ArrayList<>();
+//                            normals = new ArrayList<>();
+//                            indices = new ArrayList<>();
+//
+//                            break;
+//                        case "v":
+//                            vertices.add(new Vec3(Float.parseFloat(tokens[1]),
+//                                    Float.parseFloat(tokens[2]),
+//                                    Float.parseFloat(tokens[3])));
+//                            break;
+//                        case "vn":
+//                            normals.add(new Vec3(Float.parseFloat(tokens[1]),
+//                                    Float.parseFloat(tokens[2]),
+//                                    Float.parseFloat(tokens[3])));
+//                            break;
+//                        case "vt":
+//                            // u, v, w (optional)
+//                            Vec3 texCoord = null;
+//                            if (tokens.length == 3) {
+//                                texCoord = new Vec3(Float.parseFloat(tokens[1]),
+//                                        Float.parseFloat(tokens[2]),
+//                                        0.0f);
+//                            } else {
+//                                new Vec3(Float.parseFloat(tokens[1]),
+//                                        Float.parseFloat(tokens[2]),
+//                                        Float.parseFloat(tokens[3]));
+//                            }
+//                            textureCoords.add(texCoord);
+//                            break;
+//                        case "f":
+//                            // split each token with '/'
+//                            // f vi/ti/ni vi/ti/ni vi/ti/ni
+//                            // or
+//                            // f vi vi vi
+//                            meshBuilder.setMeshType(Mesh.MeshType.POLYGON_MESH);
+//
+//                            if (line.contains("/")) {
+//                                for (int i = 1; i < tokens.length; i++) {
+//                                    final String faceToken = tokens[i];
+//                                    final String[] faceTokens = faceToken.split("/");
+//                                    ObjIndex.Builder objIndexBuilder = new ObjIndex.Builder();
+//                                    objIndexBuilder.setVertexIndex(Integer.valueOf(faceTokens[0]) - 1);
+//                                    if (!faceTokens[1].isEmpty())
+//                                        objIndexBuilder.setTextureCoordIndex(Integer.valueOf(faceTokens[1]) - 1);
+//                                    if (!faceTokens[2].isEmpty())
+//                                        objIndexBuilder.setNormalIndex(Integer.valueOf(faceTokens[2]) - 1);
+//                                    indices.add(objIndexBuilder.build());
+//                                }
+//                            } else {
+//                                // uses spaces for each face vertex
+//                                for (int i = 1; i < tokens.length; i++) {
+//                                    ObjIndex.Builder objIndexBuilder = new ObjIndex.Builder();
+//                                    objIndexBuilder.setVertexIndex(Integer.valueOf(tokens[i]) - 1);
+//                                    indices.add(objIndexBuilder.build());
+//                                }
+//                            }
+//
+//                            break;
+//                        case "l":
+//                            // dont split, keep original tokens
+//
+//                            // l vi vi
+//                            // or
+//                            // l vi/ti vi/ti
+//
+//                            meshBuilder.setMeshType(Mesh.MeshType.POLYLINE_MESH);
+//
+//                            // just considering first case for now...
+//                            for (int i = 1; i < tokens.length; i++) {
+//                                ObjIndex.Builder objIndexBuilder = new ObjIndex.Builder();
+//                                objIndexBuilder.setVertexIndex(Integer.valueOf(tokens[i]) - 1);
+//                                indices.add(objIndexBuilder.build());
+//                            }
+//                            break;
+//                        case "mtllib":
+//                            // load MTL files
+//                            // mtllib filename1 filename2 . . .
+//                            final String restLine = line.replace("mtllib ", "");
+//                            final String[] mtlTokens = restLine.split("\\.mtl");
+//
+//                            for(int i = 0; i < mtlTokens.length; i++) {    // for each MTL file
+//                                final String mtlFileName = mtlTokens[i] + ".mtl";
+//                                // filename is likely relative
+//                                final Path mtlFilePath = Paths.get(filePath.getParent().toString(), mtlFileName);
+//                                Map<String, WavefrontMaterial> parsedMaterials = parseMtlFile(mtlFilePath);
+//                                materials.putAll(parsedMaterials);
+//                            }
+//
+//                            break;
+//                        case "usemtl":
+//                            final WavefrontMaterial material = materials.get(tokens[1]);
+//                            if(material != null) {
+//                                meshBuilder.setMaterial(material);
+//                            } else {
+//                                throw new IOException("material " + tokens[1] + " not found in any of the MTL files");
+//                            }
+//                            break;
+//                    }
+//                }
+//            } // end else (not a comment)
+//        } // end while read line
+//
+//        // reached end of file
+//        final Mesh mesh = buildMesh(meshBuilder, vertices, textureCoords, normals, indices, currVertexCount, currNormalCount, currTexCoordCount);
+//        meshMap.put(mesh.getName(), mesh);
+//        bufferedReader.close();
+//        System.out.println("Finished parsing " + filePath.getFileName());
+//        return meshMap;
+//    }
+
 
     /**
      * Parses the given .OBJ file and attempts to extract the useful Mesh data
@@ -55,7 +273,7 @@ public class ObjLoader {
      * @param filePath Path to .OBJ file
      * @throws IOException
      */
-    public Map<String, Mesh> loadObjMeshesV2(String filePath) throws IOException {
+    public Map<String, Mesh> loadObjMeshesV2(Path filePath) throws IOException {
         meshes = new HashMap<>();
         state = ParserState.INIT;
 
@@ -67,28 +285,12 @@ public class ObjLoader {
 
         boolean builtFirstMesh = false;
         Mesh.Builder meshBuilder = null;
-
+        final String fileName = filePath.getFileName().toString();
         String currObjName = "";
 
         textures = new ArrayList<>();
 
-        // file i/o
-        String fileName;
-        File file;
-        final URL resource = ObjModel.class.getClassLoader().getResource(filePath);
-        if(resource == null) {
-            throw new IOException("Resource " + filePath + " could not be found.");
-        }
-
-        // get filename
-        try {
-            file = new File(resource.toURI());
-            fileName = file.getName();
-        } catch(URISyntaxException e) {
-            throw new IOException(e);
-        }
-
-        try(BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(resource.openStream()))) {
+        try(BufferedReader bufferedReader = Files.newBufferedReader(filePath)) {
             String line;
             while((line = bufferedReader.readLine()) != null) {
                 final String[] tokens = line.split("\\s+");
@@ -106,6 +308,9 @@ public class ObjLoader {
                         switch(firstToken) {
                             case "o":
                                 state = ParserState.PROCESS_VNT;
+//                                vertices = new ArrayList<>();
+//                                textureCoords = new ArrayList<>();
+//                                normals = new ArrayList<>();
                                 indices = new ArrayList<>();
                                 currObjName = fileName + ". " + tokens[1];
                                 break;
@@ -118,7 +323,7 @@ public class ObjLoader {
                                 for (String mtlToken : mtlTokens) {
                                     final String mtlFileName = mtlToken + ".mtl";
                                     // filename is likely relative
-                                    final Path mtlFilePath = Paths.get(file.getParent(), mtlFileName);
+                                    final Path mtlFilePath = Paths.get(filePath.getParent().toString(), mtlFileName);
                                     Map<String, WavefrontMaterial> parsedMaterials = parseMtlFile(mtlFilePath);
                                     materials.putAll(parsedMaterials);
                                 }

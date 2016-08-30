@@ -15,6 +15,7 @@ import javax.media.opengl.GL;
 import javax.media.opengl.GL2;
 import java.awt.*;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -76,7 +77,19 @@ public class ObjModel implements OrderedRenderable {
     public ObjModel(String fileName) throws IOException {
         this();
         final ObjLoader objLoader = new ObjLoader();
-        this.meshes = objLoader.loadObjMeshesV2(fileName);
+        this.meshes = objLoader.loadObjMeshes(fileName);
+    }
+
+    /**
+     * Constructs a new ObjModel.
+     *
+     * @param filePath Path to .OBJ file
+     * @throws IOException
+     */
+    public ObjModel(Path filePath) throws IOException {
+        this();
+        final ObjLoader objLoader = new ObjLoader();
+        this.meshes = objLoader.loadObjMeshesV2(filePath);
     }
 
     /**
