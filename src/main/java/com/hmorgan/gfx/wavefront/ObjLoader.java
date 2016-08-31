@@ -13,9 +13,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.IntBuffer;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.util.*;
 import java.util.List;
 
@@ -33,6 +31,8 @@ public class ObjLoader {
     private Map<String, WavefrontMaterial> materials;
     private List<WWTexture> textures;
 
+    private static final Map<String, FileSystem> fileSystemCache = new HashMap<>(); // FileSystem cache
+
     private enum ParserState {
         START,
         INIT,
@@ -44,27 +44,45 @@ public class ObjLoader {
     }
 
     /**
-     * Convenience method to find and return the Path of a filename from this project's
-     * resources folder.
+     * Convenience method to convert a resource into a path. This allows a {@link Path} to be created for a resource
+     * that resides in a JAR file (e.g. if the project is packaged in a JAR).
      *
-     * @param filename filename to get a Path to
-     * @return Path to filename
-     * @throws IOException if file does not exist
+     * Thanks to user VGR on StackOverflow. https://stackoverflow.com/questions/15713119/java-nio-file-path-for-a-classpath-resource
+     *
+     * @param resource the resource to convert to a {@link Path}
+     * @return the {@link Path} representing the resource
+     * @throws IOException
+     * @throws URISyntaxException
      */
-    public static Path getFilePathFromResources(String filename) throws IOException {
-        URI uri;
-        try {
-            Optional<URL> url = Optional.ofNullable(ObjModel.class.getClassLoader().getResource(filename));
-            if(url.isPresent()) {
-                uri = url.get().toURI();
-                return Paths.get(uri);
-            }
-            else
-                throw new IOException(filename + " does not exist");
-        } catch (URISyntaxException e) {
-            throw new IOException(filename + " does not exist");
+    public static Path resourceToPath(URL resource) throws IOException, URISyntaxException {
+        Objects.requireNonNull(resource, "Resource URL cannot be null");
+        final URI uri = resource.toURI();
+
+        final String scheme = uri.getScheme();
+        if(scheme.equals("file")) {
+            return Paths.get(uri);
         }
+
+        if(!scheme.equals("jar")) {
+            throw new IllegalArgumentException("Cannot convert to Path: " + uri);
+        }
+
+        final String s = uri.toString();
+        final int separator = s.indexOf("!/");
+        final String entryName = s.substring(separator + 2);
+        final URI fileURI = URI.create(s.substring(0, separator));
+
+        // create a FileSystem to allow loading resource from JAR
+        // apparently one cannot create another FileSystem object on a certain path if there is already one open
+        // so a cache is used here
+        FileSystem fs = fileSystemCache.get(fileURI.toString());
+        if(fs == null) {
+            fs = FileSystems.newFileSystem(fileURI, Collections.<String, Object>emptyMap());
+            fileSystemCache.put(fileURI.toString(), fs);
+        }
+        return fs.getPath(entryName);
     }
+
 
     public ObjLoader() {
 
@@ -77,7 +95,7 @@ public class ObjLoader {
      * @throws IOException
      */
     public ObjModel loadObjModel(Path filePath) throws IOException {
-        return new ObjModel(loadObjMeshesV2(filePath));
+        return new ObjModel(loadObjMeshes(filePath));
     }
 
     /**
@@ -87,184 +105,12 @@ public class ObjLoader {
      * @throws IOException
      */
     public Map<String, Mesh> loadObjMeshes(String fileName) throws IOException {
-        return loadObjMeshesV2(getFilePathFromResources(fileName));
+        try {
+            return loadObjMeshes(resourceToPath(ObjLoader.class.getClassLoader().getResource(fileName)));
+        } catch(URISyntaxException e) {
+            throw new IOException(e);
+        }
     }
-//
-//    /**
-//     * Parses the given .OBJ file and attempts to extract the useful Mesh data
-//     * from it, populating this class's meshes map.
-//     *
-//     * @param filePath Path to .OBJ file
-//     * @throws IOException
-//     */
-//    public static List<MeshTreeNode> loadObjMeshes(Path filePath) throws IOException {
-////        final Map<String, Mesh> meshMap = new HashMap<>();
-//        final List<MeshTreeNode> meshes = new ArrayList<>();
-//        boolean builtFirstMesh = false;
-//        Mesh.Builder meshBuilder = new Mesh.Builder();
-//        List<Vec3> vertices = new ArrayList<>();
-//        List<Vec3> textureCoords = new ArrayList<>();
-//        List<Vec3> normals = new ArrayList<>();
-//        List<ObjIndex> indices = new ArrayList<>();
-//        Map<String, WavefrontMaterial> materials = new HashMap<>();
-//        List<WWTexture> textures = new ArrayList<>();
-//        int currVertexCount = 0;
-//        int currNormalCount = 0;
-//        int currTexCoordCount = 0;
-//
-//        System.out.println("Parsing " + filePath.getFileName() + "...");
-//        // open file
-//        String line;
-//        BufferedReader bufferedReader = Files.newBufferedReader(filePath);
-//        while ((line = bufferedReader.readLine()) != null) {
-//            // start going through the file, reading line by line
-//            // if we read an object (o) then we need to make a new mesh
-//            // make a new list of verts, normals, texcoords, and indices
-//            // create a mesh.builder and set those lists
-//            // add the newly created mesh to the map
-//
-//            if (line.charAt(0) != '#') {  // ignore comments
-//                final String[] tokens = line.split("\\s+");
-//                if (tokens.length > 0) {
-//                    final String firstToken = tokens[0];
-//
-//                    switch (firstToken) {
-//                        case "o":
-//                            final String objectName = tokens[1];
-//
-//                            // start of new object, create mesh and add it to map
-//                            if (builtFirstMesh) {
-//                                final Mesh mesh = buildMesh(meshBuilder,
-//                                        vertices,
-//                                        textureCoords,
-//                                        normals,
-//                                        indices,
-//                                        currVertexCount,
-//                                        currNormalCount,
-//                                        currTexCoordCount);
-//                                final MeshTreeNode meshTreeNode = new MeshTreeNode.Builder()
-//                                 .
-//                                meshMap.put(mesh.getName(), mesh);
-//                                currVertexCount += vertices.size();
-//                                currNormalCount += normals.size();
-//                                currTexCoordCount += textureCoords.size();
-//                            } else {
-//                                builtFirstMesh = true;
-//                            }
-//                            // create a new mesh builder & reset working lists
-//                            meshBuilder = new Mesh.Builder();
-//                            meshBuilder.setName(objectName);
-//                            vertices = new ArrayList<>();
-//                            textureCoords = new ArrayList<>();
-//                            normals = new ArrayList<>();
-//                            indices = new ArrayList<>();
-//
-//                            break;
-//                        case "v":
-//                            vertices.add(new Vec3(Float.parseFloat(tokens[1]),
-//                                    Float.parseFloat(tokens[2]),
-//                                    Float.parseFloat(tokens[3])));
-//                            break;
-//                        case "vn":
-//                            normals.add(new Vec3(Float.parseFloat(tokens[1]),
-//                                    Float.parseFloat(tokens[2]),
-//                                    Float.parseFloat(tokens[3])));
-//                            break;
-//                        case "vt":
-//                            // u, v, w (optional)
-//                            Vec3 texCoord = null;
-//                            if (tokens.length == 3) {
-//                                texCoord = new Vec3(Float.parseFloat(tokens[1]),
-//                                        Float.parseFloat(tokens[2]),
-//                                        0.0f);
-//                            } else {
-//                                new Vec3(Float.parseFloat(tokens[1]),
-//                                        Float.parseFloat(tokens[2]),
-//                                        Float.parseFloat(tokens[3]));
-//                            }
-//                            textureCoords.add(texCoord);
-//                            break;
-//                        case "f":
-//                            // split each token with '/'
-//                            // f vi/ti/ni vi/ti/ni vi/ti/ni
-//                            // or
-//                            // f vi vi vi
-//                            meshBuilder.setMeshType(Mesh.MeshType.POLYGON_MESH);
-//
-//                            if (line.contains("/")) {
-//                                for (int i = 1; i < tokens.length; i++) {
-//                                    final String faceToken = tokens[i];
-//                                    final String[] faceTokens = faceToken.split("/");
-//                                    ObjIndex.Builder objIndexBuilder = new ObjIndex.Builder();
-//                                    objIndexBuilder.setVertexIndex(Integer.valueOf(faceTokens[0]) - 1);
-//                                    if (!faceTokens[1].isEmpty())
-//                                        objIndexBuilder.setTextureCoordIndex(Integer.valueOf(faceTokens[1]) - 1);
-//                                    if (!faceTokens[2].isEmpty())
-//                                        objIndexBuilder.setNormalIndex(Integer.valueOf(faceTokens[2]) - 1);
-//                                    indices.add(objIndexBuilder.build());
-//                                }
-//                            } else {
-//                                // uses spaces for each face vertex
-//                                for (int i = 1; i < tokens.length; i++) {
-//                                    ObjIndex.Builder objIndexBuilder = new ObjIndex.Builder();
-//                                    objIndexBuilder.setVertexIndex(Integer.valueOf(tokens[i]) - 1);
-//                                    indices.add(objIndexBuilder.build());
-//                                }
-//                            }
-//
-//                            break;
-//                        case "l":
-//                            // dont split, keep original tokens
-//
-//                            // l vi vi
-//                            // or
-//                            // l vi/ti vi/ti
-//
-//                            meshBuilder.setMeshType(Mesh.MeshType.POLYLINE_MESH);
-//
-//                            // just considering first case for now...
-//                            for (int i = 1; i < tokens.length; i++) {
-//                                ObjIndex.Builder objIndexBuilder = new ObjIndex.Builder();
-//                                objIndexBuilder.setVertexIndex(Integer.valueOf(tokens[i]) - 1);
-//                                indices.add(objIndexBuilder.build());
-//                            }
-//                            break;
-//                        case "mtllib":
-//                            // load MTL files
-//                            // mtllib filename1 filename2 . . .
-//                            final String restLine = line.replace("mtllib ", "");
-//                            final String[] mtlTokens = restLine.split("\\.mtl");
-//
-//                            for(int i = 0; i < mtlTokens.length; i++) {    // for each MTL file
-//                                final String mtlFileName = mtlTokens[i] + ".mtl";
-//                                // filename is likely relative
-//                                final Path mtlFilePath = Paths.get(filePath.getParent().toString(), mtlFileName);
-//                                Map<String, WavefrontMaterial> parsedMaterials = parseMtlFile(mtlFilePath);
-//                                materials.putAll(parsedMaterials);
-//                            }
-//
-//                            break;
-//                        case "usemtl":
-//                            final WavefrontMaterial material = materials.get(tokens[1]);
-//                            if(material != null) {
-//                                meshBuilder.setMaterial(material);
-//                            } else {
-//                                throw new IOException("material " + tokens[1] + " not found in any of the MTL files");
-//                            }
-//                            break;
-//                    }
-//                }
-//            } // end else (not a comment)
-//        } // end while read line
-//
-//        // reached end of file
-//        final Mesh mesh = buildMesh(meshBuilder, vertices, textureCoords, normals, indices, currVertexCount, currNormalCount, currTexCoordCount);
-//        meshMap.put(mesh.getName(), mesh);
-//        bufferedReader.close();
-//        System.out.println("Finished parsing " + filePath.getFileName());
-//        return meshMap;
-//    }
-
 
     /**
      * Parses the given .OBJ file and attempts to extract the useful Mesh data
@@ -273,7 +119,7 @@ public class ObjLoader {
      * @param filePath Path to .OBJ file
      * @throws IOException
      */
-    public Map<String, Mesh> loadObjMeshesV2(Path filePath) throws IOException {
+    public Map<String, Mesh> loadObjMeshes(Path filePath) throws IOException {
         meshes = new HashMap<>();
         state = ParserState.INIT;
 
@@ -308,9 +154,6 @@ public class ObjLoader {
                         switch(firstToken) {
                             case "o":
                                 state = ParserState.PROCESS_VNT;
-//                                vertices = new ArrayList<>();
-//                                textureCoords = new ArrayList<>();
-//                                normals = new ArrayList<>();
                                 indices = new ArrayList<>();
                                 currObjName = fileName + ". " + tokens[1];
                                 break;
@@ -323,7 +166,7 @@ public class ObjLoader {
                                 for (String mtlToken : mtlTokens) {
                                     final String mtlFileName = mtlToken + ".mtl";
                                     // filename is likely relative
-                                    final Path mtlFilePath = Paths.get(filePath.getParent().toString(), mtlFileName);
+                                    final Path mtlFilePath = filePath.resolveSibling(mtlFileName);
                                     Map<String, WavefrontMaterial> parsedMaterials = parseMtlFile(mtlFilePath);
                                     materials.putAll(parsedMaterials);
                                 }
@@ -674,11 +517,8 @@ public class ObjLoader {
                             break;
                         case "map_Kd":  // diffuse texture map
                             String textureFilename = tokens[1];
-                            if(Paths.get(textureFilename).isAbsolute())
-                                diffuseTextureMapFilepath = Paths.get(textureFilename);
-                            else
-                                diffuseTextureMapFilepath = Paths.get(mtlFilePath.getParent().toString(), textureFilename);
-                            int abc = 123;
+                            // filepath is likely relative
+                            diffuseTextureMapFilepath = mtlFilePath.resolveSibling(textureFilename);
                             break;
                     }
                 }

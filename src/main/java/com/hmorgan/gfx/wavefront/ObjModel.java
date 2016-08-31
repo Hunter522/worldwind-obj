@@ -89,7 +89,7 @@ public class ObjModel implements OrderedRenderable {
     public ObjModel(Path filePath) throws IOException {
         this();
         final ObjLoader objLoader = new ObjLoader();
-        this.meshes = objLoader.loadObjMeshesV2(filePath);
+        this.meshes = objLoader.loadObjMeshes(filePath);
     }
 
     /**
