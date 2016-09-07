@@ -2,6 +2,8 @@ package com.hmorgan.gfx.wavefront;
 
 import com.hmorgan.gfx.Mesh;
 import com.jogamp.common.nio.Buffers;
+import gov.nasa.worldwind.Locatable;
+import gov.nasa.worldwind.Movable;
 import gov.nasa.worldwind.geom.*;
 import gov.nasa.worldwind.geom.Vec4;
 import gov.nasa.worldwind.pick.PickSupport;
@@ -40,7 +42,7 @@ import java.util.stream.Collectors;
  *
  * @author Hunter N. Morgan
  */
-public class ObjModel implements OrderedRenderable {
+public class ObjModel implements OrderedRenderable, Movable, Locatable {
 
     private Map<String, Mesh> meshes;       // collection of Meshes
     private Material material;
@@ -571,5 +573,20 @@ public class ObjModel implements OrderedRenderable {
 
     public void setYaw(double yaw) {
         this.yaw = yaw;
+    }
+
+    @Override
+    public Position getReferencePosition() {
+        return getPosition();
+    }
+
+    @Override
+    public void move(Position position) {
+        moveTo(this.getPosition().add(position));
+    }
+
+    @Override
+    public void moveTo(Position position) {
+        this.setPosition(position);
     }
 }

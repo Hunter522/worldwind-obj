@@ -169,6 +169,10 @@ public class Mesh {
     }
 
     public void genGlBuffers(DrawContext dc) {
+        if(vboCache.containsKey(this.name)){
+            this.generatedGlBuffers = true;
+        }
+
         final GL2 gl = dc.getGL().getGL2();
 
 
