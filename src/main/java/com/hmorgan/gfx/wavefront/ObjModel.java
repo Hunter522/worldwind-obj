@@ -46,6 +46,7 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
 
     private Map<String, Mesh> meshes;       // collection of Meshes
     private Material material;
+    private List<Vec4> verts;               // list of all verticies of all meshes
     private boolean textureDisabled;        // true to disable texture (if available)
     private float opacity;
     private Position position;              // geographic position of the cube
@@ -59,15 +60,18 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
     protected Vec4 placePoint;              // cartesian position of the cube, computed from #position
     protected double eyeDistance;           // distance from the eye point to the cube
     private Box boundingBox;                // extent of this model which is used to compute frustum intersection
+    private boolean needToComputeBoundingBox;   // flag to indicate bounding box needs to be computed on render cycle
 
     private static final OGLStackHandler oglStackHandler = new OGLStackHandler(); // used in beginDrawing/endDrawing
     protected PickSupport pickSupport = new PickSupport();
+
 
 
     private ObjModel() {
         opacity = 1.0f;
         scale = 1.0f;
         position = Position.ZERO;
+        needToComputeBoundingBox = true;
     }
 
     /**
@@ -80,6 +84,7 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
         this();
         final ObjLoader objLoader = new ObjLoader();
         this.meshes = objLoader.loadObjMeshes(fileName);
+        initVerts();
     }
 
     /**
@@ -92,6 +97,7 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
         this();
         final ObjLoader objLoader = new ObjLoader();
         this.meshes = objLoader.loadObjMeshes(filePath);
+        initVerts();
     }
 
     /**
@@ -102,6 +108,7 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
     public ObjModel(Map<String, Mesh> meshes) {
         this();
         this.meshes = meshes;
+        initVerts();
     }
 
     /**
@@ -123,15 +130,24 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
         this.eyeDistance = other.eyeDistance;
         this.pickSupport = other.pickSupport;
         this.boundingBox = other.boundingBox;
+        this.verts = other.verts;
+        this.needToComputeBoundingBox = other.needToComputeBoundingBox;
+    }
+
+    /**
+     * Create a List<Vec4> from all of our meshs' vertices
+     */
+    private void initVerts() {
+        verts = meshes
+                .values()
+                .parallelStream()
+                .flatMap(mesh -> mesh.getVertices().stream())
+                .map(vertex -> new Vec4(vertex.getPosition().getX(), vertex.getPosition().getY(), vertex.getPosition().getZ(), 1f))
+                .collect(Collectors.toList());
     }
 
     @Override
     public void render(DrawContext dc) {
-        // 1) Set up drawing state
-        // 2) Apply transform to position cube
-        // 3) Draw the cube
-        // 4) Restore drawing state to default
-
         // Rendering is controlled by NASA WorldWind's SceneController
         // The render cycle looks like this:
         // Render is called three times:
@@ -139,10 +155,15 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
         // 2) As a normal renderable. The cube is added to the ordered renderable queue.
         // 3) As an OrderedRenderable. The cube is drawn.
 
-        // if shape does not intersect with frustum or is smaller than a pixel in scale
-        // don't render it
+        // Compute bounding box for frustum intersection calculation (if needed)
+        if(needToComputeBoundingBox) {
+            boundingBox = computeBoundingBox(dc);
+            needToComputeBoundingBox = false;
+        }
+
+        // if shape does not intersect with frustum or is smaller than a pixel in scale don't render it
         if(boundingBox != null) {
-            if(!this.intersectsFrustum(dc))
+            if(!intersectsFrustum(dc))
                 return;
 
             if(dc.isSmall(boundingBox, 1))
@@ -169,7 +190,7 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
 
     @Override
     public double getDistanceFromEye() {
-        return this.eyeDistance;
+        return eyeDistance;
     }
 
     /**
@@ -195,14 +216,6 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
      * @param dc the active draw context
      */
     private Box computeBoundingBox(DrawContext dc) {
-        // create a List<Vec4> from all of our meshs' vertices
-        final List<Vec4> verts = meshes
-                .values()
-                .parallelStream()
-                .flatMap(mesh -> mesh.getVertices().stream())
-                .map(vertex -> new Vec4(vertex.getPosition().getX(), vertex.getPosition().getY(), vertex.getPosition().getZ(), 1f))
-                .collect(Collectors.toList());
-
         // compute the bounding box then transform the vertices by the modelview matrix
         // instead of transforming all the coords, we can just transform the corners of
         // the bounding box, much faster!
@@ -227,7 +240,7 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
                 .multiply(Matrix.fromRotationY(Angle.fromDegrees(roll)));
 
         return dc.getGlobe()
-                .computeSurfaceOrientationAtPosition(this.position)
+                .computeSurfaceOrientationAtPosition(position)
                 .multiply(attitudeMatrix);
     }
 
@@ -345,17 +358,14 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
         // This method is called twice each frame: once during picking and once during rendering. We only need to
         // compute the placePoint and eye distance once per frame, so check the frame timestamp to see if this is a
         // new frame.
-        if(dc.getFrameTimeStamp() != this.frameTimestamp) {
+        if(dc.getFrameTimeStamp() != frameTimestamp) {
             // Convert the cube's geographic position to a position in Cartesian coordinates.
-            this.placePoint = dc.getGlobe().computePointFromPosition(this.position);
+            placePoint = dc.getGlobe().computePointFromPosition(position);
 
             // Compute the distance from the eye to the cube's position.
-            this.eyeDistance = dc.getView().getEyePoint().distanceTo3(this.placePoint);
+            eyeDistance = dc.getView().getEyePoint().distanceTo3(placePoint);
 
-            // Compute bounding box for frustum intersection calculation
-            this.boundingBox = computeBoundingBox(dc);
-
-            this.frameTimestamp = dc.getFrameTimeStamp();
+            frameTimestamp = dc.getFrameTimeStamp();
         }
 
         // Add the cube to the ordered renderable list. The SceneController sorts the ordered renderables by eye
@@ -543,12 +553,14 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
 
     public void setScale(double scale) {
         this.scale = scale;
+        needToComputeBoundingBox = true;
     }
 
     public void setAttitude(double roll, double pitch, double yaw) {
-        setRoll(roll);
-        setPitch(pitch);
-        setYaw(yaw);
+        this.roll = roll;
+        this.pitch = pitch;
+        this.yaw = yaw;
+        needToComputeBoundingBox = true;
     }
 
     public double getRoll() {
@@ -557,6 +569,7 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
 
     public void setRoll(double roll) {
         this.roll = roll;
+        needToComputeBoundingBox = true;
     }
 
     public double getPitch() {
@@ -565,6 +578,7 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
 
     public void setPitch(double pitch) {
         this.pitch = pitch;
+        needToComputeBoundingBox = true;
     }
 
     public double getYaw() {
@@ -573,6 +587,7 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
 
     public void setYaw(double yaw) {
         this.yaw = yaw;
+        needToComputeBoundingBox = true;
     }
 
     @Override
@@ -582,11 +597,12 @@ public class ObjModel implements OrderedRenderable, Movable, Locatable {
 
     @Override
     public void move(Position position) {
-        moveTo(this.getPosition().add(position));
+        moveTo(getPosition().add(position));
     }
 
     @Override
     public void moveTo(Position position) {
-        this.setPosition(position);
+        setPosition(position);
+        needToComputeBoundingBox = true;
     }
 }
