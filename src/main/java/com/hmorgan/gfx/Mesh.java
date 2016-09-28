@@ -125,7 +125,7 @@ public class Mesh {
                     // texture not in cache, load it (note this does load it into GPU
                     // memory..since it's lazily loaded)
                     try {
-                        texture = new LazilyLoadedTexture(ImageIO.read(material.getDiffuseTextureMapPath().toFile()), true);
+                        texture = new LazilyLoadedTexture(ImageIO.read(material.getDiffuseTextureMapPath().toUri().toURL()), true);
                         textureCache.put(material.getDiffuseTextureMapPath().toString(), texture);
                         hasValidDiffuseTextureMap = true;
                     } catch (IOException e) {
